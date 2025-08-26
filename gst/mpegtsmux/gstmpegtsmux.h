@@ -88,6 +88,12 @@ struct GstMpegTsMux {
 
   /* Properties */
   gboolean m2ts_mode;
+  
+  /* PID and Service ID properties */
+  guint16 audio_pid;
+  guint16 video_pid;
+  guint16 pmt_pid;
+  guint16 service_id;
 
   /* m2ts specific */
   gint64 previous_pcr;
