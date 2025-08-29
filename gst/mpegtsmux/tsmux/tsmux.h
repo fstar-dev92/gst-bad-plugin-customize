@@ -204,6 +204,8 @@ guint 		tsmux_get_pat_interval          (TsMux *mux);
 void 		tsmux_resend_pat                (TsMux *mux);
 guint16		tsmux_get_new_pid 		(TsMux *mux);
 void    tsmux_set_bitrate       (TsMux *mux, guint64 bitrate);
+void 		tsmux_set_next_pmt_pid          (TsMux *mux, guint16 pid);
+void 		tsmux_set_next_stream_pid       (TsMux *mux, guint16 pid);
 
 /* pid/program management */
 TsMuxProgram *	tsmux_program_new 		(TsMux *mux, gint prog_id);

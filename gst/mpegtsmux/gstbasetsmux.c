@@ -189,7 +189,9 @@ enum
   PROP_BITRATE,
   PROP_PCR_INTERVAL,
   PROP_SCTE_35_PID,
-  PROP_SCTE_35_NULL_INTERVAL
+  PROP_SCTE_35_NULL_INTERVAL,
+  PROP_PMT_PID,
+  PROP_STREAM_PID
 };
 
 #define DEFAULT_SCTE_35_PID 0
@@ -2506,6 +2508,20 @@ gst_base_ts_mux_set_property (GObject * object, guint prop_id,
     case PROP_SCTE_35_NULL_INTERVAL:
       mux->scte35_null_interval = g_value_get_uint (value);
       break;
+    case PROP_PMT_PID:
+      mux->pmt_pid = g_value_get_uint (value);
+      g_mutex_lock (&mux->lock);
+      if (mux->tsmux)
+        tsmux_set_next_pmt_pid (mux->tsmux, mux->pmt_pid);
+      g_mutex_unlock (&mux->lock);
+      break;
+    case PROP_STREAM_PID:
+      mux->stream_pid = g_value_get_uint (value);
+      g_mutex_lock (&mux->lock);
+      if (mux->tsmux)
+        tsmux_set_next_stream_pid (mux->tsmux, mux->stream_pid);
+      g_mutex_unlock (&mux->lock);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -2546,6 +2562,12 @@ gst_base_ts_mux_get_property (GObject * object, guint prop_id,
     case PROP_SCTE_35_NULL_INTERVAL:
       g_value_set_uint (value, mux->scte35_null_interval);
       break;
+    case PROP_PMT_PID:
+      g_value_set_uint (value, mux->pmt_pid);
+      break;
+    case PROP_STREAM_PID:
+      g_value_set_uint (value, mux->stream_pid);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -2564,6 +2586,8 @@ gst_base_ts_mux_default_create_ts_mux (GstBaseTsMux * mux)
   tsmux_set_si_interval (tsmux, mux->si_interval);
   tsmux_set_bitrate (tsmux, mux->bitrate);
   tsmux_set_pcr_interval (tsmux, mux->pcr_interval);
+  tsmux_set_next_pmt_pid (tsmux, mux->pmt_pid);
+  tsmux_set_next_stream_pid (tsmux, mux->stream_pid);
 
   return tsmux;
 }
@@ -2699,6 +2723,18 @@ gst_base_ts_mux_class_init (GstBaseTsMuxClass * klass)
           TSMUX_DEFAULT_SCTE_35_NULL_INTERVAL,
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_PMT_PID,
+      g_param_spec_uint ("pmt-pid", "PMT PID",
+          "PID to use for inserting PMT packets",
+          0, G_MAXUINT, TSMUX_START_PMT_PID,
+          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_STREAM_PID,
+      g_param_spec_uint ("stream-pid", "Stream PID",
+          "PID to use for inserting stream packets",
+          0, G_MAXUINT, TSMUX_START_ES_PID,
+          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
   gst_element_class_add_static_pad_template_with_gtype (gstelement_class,
       &gst_base_ts_mux_src_factory, GST_TYPE_AGGREGATOR_PAD);
 
@@ -2720,6 +2756,8 @@ gst_base_ts_mux_init (GstBaseTsMux * mux)
   mux->bitrate = TSMUX_DEFAULT_BITRATE;
   mux->scte35_pid = DEFAULT_SCTE_35_PID;
   mux->scte35_null_interval = TSMUX_DEFAULT_SCTE_35_NULL_INTERVAL;
+  mux->pmt_pid = TSMUX_START_PMT_PID;
+  mux->stream_pid = TSMUX_START_ES_PID;
 
   mux->packet_size = GST_BASE_TS_MUX_NORMAL_PACKET_LENGTH;
   mux->automatic_alignment = 0;

@@ -161,6 +161,8 @@ struct GstBaseTsMux {
   guint scte35_pid;
   guint scte35_null_interval;
   guint32 last_scte35_event_seqnum;
+  guint pmt_pid;
+  guint stream_pid;
 
   /* state */
   gboolean first;

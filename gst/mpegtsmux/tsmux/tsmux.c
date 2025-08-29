@@ -1830,3 +1830,17 @@ tsmux_set_bitrate (TsMux * mux, guint64 bitrate)
 {
   mux->bitrate = bitrate;
 }
+
+void
+tsmux_set_next_pmt_pid (TsMux * mux, guint16 pid)
+{
+  g_return_if_fail (mux != NULL);
+  mux->next_pmt_pid = pid;
+}
+
+void
+tsmux_set_next_stream_pid (TsMux * mux, guint16 pid)
+{
+  g_return_if_fail (mux != NULL);
+  mux->next_stream_pid = pid;
+}
