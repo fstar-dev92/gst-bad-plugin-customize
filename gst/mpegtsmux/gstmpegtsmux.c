@@ -326,6 +326,45 @@ gst_mpeg_ts_mux_drain (GstBaseTsMux * mux)
 }
 
 
+
+/* Additional validation and debugging functions */
+
+static void
+gst_mpeg_ts_mux_validate_configuration (GstMpegTsMux * mux)
+{
+  GstBaseTsMux *base_mux = GST_BASE_TS_MUX (mux);
+  
+  GST_DEBUG_OBJECT (mux, "Configuration validation:");
+  GST_DEBUG_OBJECT (mux, "  PMT PID: 0x%04x", mux->pmt_pid);
+  GST_DEBUG_OBJECT (mux, "  Audio PID: 0x%04x", mux->audio_pid);
+  GST_DEBUG_OBJECT (mux, "  Video PID: 0x%04x", mux->video_pid);
+  GST_DEBUG_OBJECT (mux, "  Service ID: 0x%04x", mux->service_id);
+  
+  if (base_mux->tsmux) {
+    GST_DEBUG_OBJECT (mux, "  TSMux exists with %d programs", 
+                      g_list_length (base_mux->tsmux->programs));
+    
+    GList *cur;
+    for (cur = base_mux->tsmux->programs; cur; cur = cur->next) {
+      TsMuxProgram *program = (TsMuxProgram *) cur->data;
+      GST_DEBUG_OBJECT (mux, "    Program %d: PMT PID 0x%04x", 
+                        program->pgm_number, program->pmt_pid);
+    }
+    
+    GST_DEBUG_OBJECT (mux, "  TSMux has %d streams", 
+                      g_list_length (base_mux->tsmux->streams));
+    
+    for (cur = base_mux->tsmux->streams; cur; cur = cur->next) {
+      TsMuxStream *stream = (TsMuxStream *) cur->data;
+      GST_DEBUG_OBJECT (mux, "    Stream PID 0x%04x: type 0x%02x", 
+                        tsmux_stream_get_pid (stream), stream->stream_type);
+    }
+  } else {
+    GST_DEBUG_OBJECT (mux, "  TSMux not yet created");
+  }
+}
+
+
 static void
 gst_mpeg_ts_mux_configure_tsmux (GstMpegTsMux * mux)
 {
@@ -342,11 +381,31 @@ gst_mpeg_ts_mux_configure_tsmux (GstMpegTsMux * mux)
         TsMuxProgram *program = (TsMuxProgram *) cur->data;
         if (program->pgm_number == 1) { /* Default program */
           tsmux_program_set_pmt_pid (program, mux->pmt_pid);
+          GST_DEBUG_OBJECT (mux, "Updated PMT PID to 0x%04x in existing tsmux", mux->pmt_pid);
           break;
         }
       }
     }
-  }
+    
+    /* Validate that custom PIDs don't conflict with existing streams */
+    if (mux->audio_pid > 0 || mux->video_pid > 0) {
+      GList *cur;
+      for (cur = base_mux->tsmux->streams; cur; cur = cur->next) {
+        TsMuxStream *stream = (TsMuxStream *) cur->data;
+        guint16 stream_pid = tsmux_stream_get_pid (stream);
+        
+        if ((mux->audio_pid > 0 && stream_pid == mux->audio_pid) ||
+            (mux->video_pid > 0 && stream_pid == mux->video_pid)) {
+          GST_WARNING_OBJECT (mux, "Stream with PID 0x%04x already exists, custom PID may not work as expected", stream_pid);
+        }
+      }
+    }
+      } else {
+      GST_DEBUG_OBJECT (mux, "tsmux not yet created, configuration will be applied when created");
+    }
+    
+    /* Validate the current configuration */
+    gst_mpeg_ts_mux_validate_configuration (mux);
 }
 
 /* GObject implementation */
@@ -370,10 +429,11 @@ gst_mpeg_ts_mux_set_property (GObject * object, guint prop_id,
     case PROP_AUDIO_PID:
       {
         guint pid = g_value_get_uint (value);
-        if (pid == 0 || (pid >= 0x0100 && pid <= 0x1FFE)) {
+        if (pid == 0 || (pid >= TSMUX_START_ES_PID && pid <= 0x1FFE)) {
           mux->audio_pid = pid;
+          GST_DEBUG_OBJECT (mux, "Set audio PID to 0x%04x", pid);
         } else {
-          GST_WARNING_OBJECT (mux, "Invalid audio PID %u, must be 0 or 0x0100-0x1FFE", pid);
+          GST_WARNING_OBJECT (mux, "Invalid audio PID %u, must be 0 or 0x%04x-0x1FFE", pid, TSMUX_START_ES_PID);
         }
       }
       /* Note: This only affects new streams, existing streams keep their PIDs */
@@ -381,10 +441,11 @@ gst_mpeg_ts_mux_set_property (GObject * object, guint prop_id,
     case PROP_VIDEO_PID:
       {
         guint pid = g_value_get_uint (value);
-        if (pid == 0 || (pid >= 0x0100 && pid <= 0x1FFE)) {
+        if (pid == 0 || (pid >= TSMUX_START_ES_PID && pid <= 0x1FFE)) {
           mux->video_pid = pid;
+          GST_DEBUG_OBJECT (mux, "Set video PID to 0x%04x", pid);
         } else {
-          GST_WARNING_OBJECT (mux, "Invalid video PID %u, must be 0 or 0x0100-0x1FFE", pid);
+          GST_WARNING_OBJECT (mux, "Invalid video PID %u, must be 0 or 0x%04x-0x1FFE", pid, TSMUX_START_ES_PID);
         }
       }
       /* Note: This only affects new streams, existing streams keep their PIDs */
@@ -392,12 +453,13 @@ gst_mpeg_ts_mux_set_property (GObject * object, guint prop_id,
     case PROP_PMT_PID:
       {
         guint pid = g_value_get_uint (value);
-        if (pid == 0 || (pid >= 0x0020 && pid <= 0x1FFE)) {
+        if (pid == 0 || (pid >= TSMUX_START_PMT_PID && pid <= 0x1FFE)) {
           mux->pmt_pid = pid;
+          GST_DEBUG_OBJECT (mux, "Set PMT PID to 0x%04x", pid);
           /* Reconfigure the tsmux if it already exists */
           gst_mpeg_ts_mux_configure_tsmux (mux);
         } else {
-          GST_WARNING_OBJECT (mux, "Invalid PMT PID %u, must be 0 or 0x0020-0x1FFE", pid);
+          GST_WARNING_OBJECT (mux, "Invalid PMT PID %u, must be 0 or 0x%04x-0x1FFE", pid, TSMUX_START_PMT_PID);
         }
       }
       break;
@@ -532,22 +594,41 @@ gst_mpeg_ts_mux_request_new_pad (GstElement * element, GstPadTemplate * templ,
     /* Auto-assign PID based on stream type */
     if (is_audio && mux->audio_pid > 0) {
       pid = mux->audio_pid;
+      GST_DEBUG_OBJECT (mux, "Using custom audio PID 0x%04x", pid);
     } else if (is_video && mux->video_pid > 0) {
       pid = mux->video_pid;
+      GST_DEBUG_OBJECT (mux, "Using custom video PID 0x%04x", pid);
     } else {
       /* Use default auto-assignment from base class */
       GstBaseTsMux *base_mux = GST_BASE_TS_MUX (mux);
       do {
         pid = tsmux_get_new_pid (base_mux->tsmux);
       } while (gst_base_ts_mux_has_pad_with_pid (base_mux, pid));
+      GST_DEBUG_OBJECT (mux, "Auto-assigned PID 0x%04x", pid);
     }
     
     /* Name the pad correctly after the selected pid */
     name = free_name = g_strdup_printf ("sink_%d", pid);
   }
 
-  /* Check if PID is already in use */
+  /* Additional validation for custom PIDs */
+  if (pid == mux->pmt_pid) {
+    g_free (free_name);
+    GST_ELEMENT_ERROR (element, STREAM, MUX, 
+        ("PID 0x%04x conflicts with PMT PID", pid), (NULL));
+    return NULL;
+  }
+
+  /* Check if PID is already in use by existing streams */
   if (tsmux_find_stream (GST_BASE_TS_MUX (mux)->tsmux, pid)) {
+    g_free (free_name);
+    GST_ELEMENT_ERROR (element, STREAM, MUX, ("Duplicate PID requested"),
+        (NULL));
+    return NULL;
+  }
+
+  /* Check if PID is already in use by existing pads */
+  if (gst_base_ts_mux_has_pad_with_pid (GST_BASE_TS_MUX (mux), pid)) {
     g_free (free_name);
     GST_ELEMENT_ERROR (element, STREAM, MUX, ("Duplicate PID requested"),
         (NULL));
@@ -562,13 +643,23 @@ gst_mpeg_ts_mux_request_new_pad (GstElement * element, GstPadTemplate * templ,
   if (pad) {
     gst_base_ts_mux_pad_reset (GST_BASE_TS_MUX_PAD (pad));
     GST_BASE_TS_MUX_PAD (pad)->pid = pid;
+    
+    /* Ensure the stream is properly created with the assigned PID */
+    GST_DEBUG_OBJECT (mux, "Created pad with PID 0x%04x for %s stream", 
+                      pid, is_audio ? "audio" : (is_video ? "video" : "unknown"));
+    
+    /* Ensure tsmux is properly configured for this PID */
+    if (GST_BASE_TS_MUX (mux)->tsmux) {
+      gst_mpeg_ts_mux_configure_tsmux (mux);
+    }
+    
+    /* Validate configuration after pad creation */
+    gst_mpeg_ts_mux_validate_configuration (mux);
   }
 
   g_free (free_name);
   return pad;
 }
-
-
 
 static void
 gst_mpeg_ts_mux_dispose (GObject * object)
@@ -593,15 +684,18 @@ gst_mpeg_ts_mux_create_ts_mux (GstBaseTsMux * base_mux)
   /* Set the transport stream ID (service ID) */
   tsmux->transport_id = mux->service_id;
   
-  /* Set PMT PID for the default program if specified */
-  if (mux->pmt_pid > 0) {
-    /* Create a default program and set its PMT PID */
-    TsMuxProgram *program = tsmux_program_new (tsmux, 1);
-    if (program) {
+  /* Always create a default program for proper stream management */
+  TsMuxProgram *program = tsmux_program_new (tsmux, 1);
+  if (program) {
+    /* Set PMT PID for the default program if specified */
+    if (mux->pmt_pid > 0) {
       tsmux_program_set_pmt_pid (program, mux->pmt_pid);
-      /* Add the program to the muxer */
-      g_hash_table_insert (base_mux->programs, GINT_TO_POINTER (1), program);
+      GST_DEBUG_OBJECT (mux, "Set PMT PID to 0x%04x", mux->pmt_pid);
     }
+    /* Add the program to the muxer */
+    g_hash_table_insert (base_mux->programs, GINT_TO_POINTER (1), program);
+    GST_DEBUG_OBJECT (mux, "Created default program with ID 1");
+    
   }
   
   return tsmux;
@@ -657,13 +751,13 @@ gst_mpeg_ts_mux_class_init (GstMpegTsMuxClass * klass)
 
   g_object_class_install_property (gobject_class, PROP_AUDIO_PID,
       g_param_spec_uint ("audio-pid", "Audio PID",
-          "PID to use for audio streams (0x0100-0x1FFE, 0 for auto)",
+          "PID to use for audio streams (0x0040-0x1FFE, 0 for auto)",
           0, 0x1FFE, MPEGTSMUX_DEFAULT_AUDIO_PID,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_VIDEO_PID,
       g_param_spec_uint ("video-pid", "Video PID",
-          "PID to use for video streams (0x0100-0x1FFE, 0 for auto)",
+          "PID to use for video streams (0x0040-0x1FFE, 0 for auto)",
           0, 0x1FFE, MPEGTSMUX_DEFAULT_VIDEO_PID,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
