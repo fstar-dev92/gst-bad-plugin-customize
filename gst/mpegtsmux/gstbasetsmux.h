@@ -163,6 +163,8 @@ struct GstBaseTsMux {
   guint32 last_scte35_event_seqnum;
   guint pmt_pid;
   guint stream_pid;
+  guint next_pgm_no;
+  gchar *program_name;
 
   /* state */
   gboolean first;

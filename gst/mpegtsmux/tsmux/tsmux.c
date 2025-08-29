@@ -439,6 +439,9 @@ tsmux_program_new (TsMux * mux, gint prog_id)
   program->pmt_interval = TSMUX_DEFAULT_PMT_INTERVAL;
 
   program->next_pmt_pcr = -1;
+  
+  /* Initialize program name */
+  program->program_name = NULL;
 
   if (prog_id == 0) {
     program->pgm_number = mux->next_pgm_no++;
@@ -1647,6 +1650,10 @@ tsmux_program_free (TsMuxProgram * program)
   if (program->scte35_null_section)
     tsmux_section_free (program->scte35_null_section);
 
+  /* Free program name */
+  if (program->program_name)
+    g_free (program->program_name);
+
   g_ptr_array_free (program->streams, TRUE);
   g_slice_free (TsMuxProgram, program);
 }
@@ -1843,4 +1850,22 @@ tsmux_set_next_stream_pid (TsMux * mux, guint16 pid)
 {
   g_return_if_fail (mux != NULL);
   mux->next_stream_pid = pid;
+}
+
+void
+tsmux_set_next_pgm_no (TsMux * mux, guint16 pgm_no)
+{
+  g_return_if_fail (mux != NULL);
+  mux->next_pgm_no = pgm_no;
+}
+
+void
+tsmux_program_set_name (TsMuxProgram * program, const gchar * name)
+{
+  g_return_if_fail (program != NULL);
+  
+  if (program->program_name)
+    g_free (program->program_name);
+  
+  program->program_name = name ? g_strdup (name) : NULL;
 }

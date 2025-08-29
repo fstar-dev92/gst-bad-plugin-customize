@@ -128,6 +128,9 @@ struct TsMuxProgram {
 
   /* programs TsMuxStream's */
   GPtrArray *streams;
+  
+  /* program name */
+  gchar *program_name;
 };
 
 struct TsMux {
@@ -206,6 +209,8 @@ guint16		tsmux_get_new_pid 		(TsMux *mux);
 void    tsmux_set_bitrate       (TsMux *mux, guint64 bitrate);
 void 		tsmux_set_next_pmt_pid          (TsMux *mux, guint16 pid);
 void 		tsmux_set_next_stream_pid       (TsMux *mux, guint16 pid);
+void 		tsmux_set_next_pgm_no           (TsMux *mux, guint16 pgm_no);
+void 		tsmux_program_set_name          (TsMuxProgram *program, const gchar *name);
 
 /* pid/program management */
 TsMuxProgram *	tsmux_program_new 		(TsMux *mux, gint prog_id);

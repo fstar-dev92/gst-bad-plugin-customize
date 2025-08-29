@@ -191,7 +191,9 @@ enum
   PROP_SCTE_35_PID,
   PROP_SCTE_35_NULL_INTERVAL,
   PROP_PMT_PID,
-  PROP_STREAM_PID
+  PROP_STREAM_PID,
+  PROP_NEXT_PGM_NO,
+  PROP_PROGRAM_NAME
 };
 
 #define DEFAULT_SCTE_35_PID 0
@@ -814,6 +816,11 @@ gst_base_ts_mux_create_pad_stream (GstBaseTsMux * mux, GstPad * pad)
     tsmux_set_pmt_interval (ts_pad->prog, mux->pmt_interval);
     tsmux_program_set_scte35_pid (ts_pad->prog, mux->scte35_pid);
     tsmux_program_set_scte35_interval (ts_pad->prog, mux->scte35_null_interval);
+    
+    /* Set program name if specified */
+    if (mux->program_name)
+      tsmux_program_set_name (ts_pad->prog, mux->program_name);
+    
     g_hash_table_insert (mux->programs, GINT_TO_POINTER (ts_pad->prog_id),
         ts_pad->prog);
 
@@ -2412,6 +2419,10 @@ gst_base_ts_mux_dispose (GObject * object)
     gst_structure_free (mux->prog_map);
     mux->prog_map = NULL;
   }
+  if (mux->program_name) {
+    g_free (mux->program_name);
+    mux->program_name = NULL;
+  }
   if (mux->programs) {
     g_hash_table_destroy (mux->programs);
     mux->programs = NULL;
@@ -2522,6 +2533,18 @@ gst_base_ts_mux_set_property (GObject * object, guint prop_id,
         tsmux_set_next_stream_pid (mux->tsmux, mux->stream_pid);
       g_mutex_unlock (&mux->lock);
       break;
+    case PROP_NEXT_PGM_NO:
+      mux->next_pgm_no = g_value_get_uint (value);
+      g_mutex_lock (&mux->lock);
+      if (mux->tsmux)
+        tsmux_set_next_pgm_no (mux->tsmux, mux->next_pgm_no);
+      g_mutex_unlock (&mux->lock);
+      break;
+    case PROP_PROGRAM_NAME:
+      if (mux->program_name)
+        g_free (mux->program_name);
+      mux->program_name = g_value_get_string (value) ? g_strdup (g_value_get_string (value)) : NULL;
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -2568,6 +2591,12 @@ gst_base_ts_mux_get_property (GObject * object, guint prop_id,
     case PROP_STREAM_PID:
       g_value_set_uint (value, mux->stream_pid);
       break;
+    case PROP_NEXT_PGM_NO:
+      g_value_set_uint (value, mux->next_pgm_no);
+      break;
+    case PROP_PROGRAM_NAME:
+      g_value_set_string (value, mux->program_name);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -2588,6 +2617,7 @@ gst_base_ts_mux_default_create_ts_mux (GstBaseTsMux * mux)
   tsmux_set_pcr_interval (tsmux, mux->pcr_interval);
   tsmux_set_next_pmt_pid (tsmux, mux->pmt_pid);
   tsmux_set_next_stream_pid (tsmux, mux->stream_pid);
+  tsmux_set_next_pgm_no (tsmux, mux->next_pgm_no);
 
   return tsmux;
 }
@@ -2735,6 +2765,18 @@ gst_base_ts_mux_class_init (GstBaseTsMuxClass * klass)
           0, G_MAXUINT, TSMUX_START_ES_PID,
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_NEXT_PGM_NO,
+      g_param_spec_uint ("next-pgm-no", "Next Program Number",
+          "Set the next program number to use for inserting PMT packets",
+          0, G_MAXUINT, TSMUX_START_PROGRAM_ID,
+          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+  g_object_class_install_property (G_OBJECT_CLASS (klass), PROP_PROGRAM_NAME,
+      g_param_spec_string ("program-name", "Program Name",
+          "Set the name of the program to use for inserting PMT packets",
+          NULL,
+          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
   gst_element_class_add_static_pad_template_with_gtype (gstelement_class,
       &gst_base_ts_mux_src_factory, GST_TYPE_AGGREGATOR_PAD);
 
@@ -2758,6 +2800,8 @@ gst_base_ts_mux_init (GstBaseTsMux * mux)
   mux->scte35_null_interval = TSMUX_DEFAULT_SCTE_35_NULL_INTERVAL;
   mux->pmt_pid = TSMUX_START_PMT_PID;
   mux->stream_pid = TSMUX_START_ES_PID;
+  mux->next_pgm_no = TSMUX_START_PROGRAM_ID;
+  mux->program_name = NULL;
 
   mux->packet_size = GST_BASE_TS_MUX_NORMAL_PACKET_LENGTH;
   mux->automatic_alignment = 0;
